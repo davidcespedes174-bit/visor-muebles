@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Etiquetas QR de componentes — DC 3D Viewer</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, "Segoe UI", sans-serif; color: #102720; }
+    body { margin: 0; padding: 24px; background: #f3f7f5; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+    h1 { margin: 0; font-size: 22px; }
+    #subtitle { color: #53645f; margin: 4px 0 0; }
+    button { border: 0; border-radius: 8px; padding: 10px 15px; background: #0d6659; color: white; font: inherit; font-weight: 700; cursor: pointer; }
+    #labels { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+    .label { min-height: 168px; display: grid; grid-template-columns: 118px 1fr; gap: 12px; align-items: center; padding: 14px; border: 1px solid #d3e1dc; border-radius: 11px; background: white; break-inside: avoid; }
+    .qr { width: 116px; height: 116px; display: grid; place-items: center; }
+    .qr img, .qr canvas { width: 112px !important; height: 112px !important; image-rendering: pixelated; }
+    .label h2 { margin: 0 0 5px; font-size: 15px; line-height: 1.25; }
+    .label p { margin: 4px 0; color: #53645f; font-size: 12px; }
+    .label .dimensions { color: #0d6659; font-weight: 750; }
+    .label .meta { font-size: 11px; }
+    .code { color: #0d6659 !important; font-size: 12px; font-weight: 800; }
+    .error { padding: 18px; border-radius: 10px; background: #fff2ed; color: #8b2b18; }
+    @media print {
+      body { padding: 0; background: white; }
+      header { margin: 0 0 12px; }
+      header button { display: none; }
+      #labels { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+      .label { border-color: #aaa; border-radius: 0; padding: 8px; }
+    }
+  </style>
+</head>
+<body data-hosting="static">
+  <header>
+    <div><h1 id="title">Etiquetas QR de componentes</h1><p id="subtitle">Generando etiquetas…</p></div>
+    <button type="button" onclick="window.print()">Imprimir etiquetas</button>
+  </header>
+  <main id="labels"></main>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    const projectId = new URLSearchParams(location.search).get('proyecto');
+    const labels = document.getElementById('labels');
+    const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+
+    function addLabel({ title, id, dimensions, meta, url }) {
+      const card = document.createElement('article');
+      card.className = 'label';
+      const qr = document.createElement('div');
+      qr.className = 'qr';
+      const text = document.createElement('div');
+      text.innerHTML = `<h2>${esc(title)}</h2><p class="code">${esc(id)}</p><p class="dimensions">${esc(dimensions)}</p><p class="meta">${esc(meta)}</p>`;
+      card.append(qr, text);
+      labels.append(card);
+      new QRCode(qr, { text: url, width: 112, height: 112, correctLevel: QRCode.CorrectLevel.M });
+    }
+
+    async function load() {
+      if (!/^[a-f0-9]{24}$/i.test(projectId || '')) throw new Error('El enlace del proyecto no es válido.');
+      const staticHosting = document.body.dataset.hosting === 'static';
+      const base = staticHosting ? './proyectos' : '/projects';
+      const response = await fetch(`${base}/${encodeURIComponent(projectId)}/${staticHosting ? 'datos.json' : 'manifest.json'}`, { cache: 'no-store' });
+      if (!response.ok) throw new Error('No se encontró el proyecto publicado.');
+      const manifest = await response.json();
+      document.title = `Etiquetas QR — ${manifest.modelName || 'Proyecto'}`;
+      document.getElementById('title').textContent = `Etiquetas QR — ${manifest.modelName || 'Proyecto'}`;
+      document.getElementById('subtitle').textContent = `${manifest.pieces?.length || 0} componentes · escanea para abrir el visor 3D`;
+      for (const piece of manifest.pieces || []) {
+        const d = piece.dimensionsMm || {};
+        const hasDimensions = [d.length, d.width, d.thickness].some((n) => Number(n) > 0);
+        const dimensions = hasDimensions
+          ? `Ancho ${Math.round(d.length || 0)} mm · Alto ${Math.round(d.width || 0)} mm · Espesor ${Math.round(d.thickness || 0)} mm`
+          : 'Medidas no disponibles';
+        const meta = [piece.kind === 'componente' ? 'Componente' : (piece.kind || 'Pieza'), piece.sourceLayer ? `Capa: ${piece.sourceLayer}` : 'Sin capa']
+          .join(' · ');
+        addLabel({
+          title: piece.displayName || piece.id,
+          id: piece.id,
+          dimensions,
+          meta,
+          url: new URL(`./index.html?proyecto=${encodeURIComponent(projectId)}&pieza=${encodeURIComponent(piece.id)}`, location.href).href
+        });
+      }
+    }
+
+    load().catch((error) => {
+      labels.innerHTML = `<p class="error">${esc(error.message)}</p>`;
+      document.getElementById('subtitle').textContent = 'No se pudieron cargar las etiquetas.';
+    });
+  </script>
+</body>
+</html>
